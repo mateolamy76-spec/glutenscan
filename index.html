@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GlutenScan</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root{--bg:#f6f4ef;--card:#fff;--ink:#1d1d1b;--mut:#6b6a66;--green:#1f9d55;--orange:#e08a00;--red:#d63a2f;--grey:#8a8a8a;--r:18px}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;padding:env(safe-area-inset-top) 16px 32px}
+  header{padding:20px 4px 12px;display:flex;align-items:center;gap:10px}
+  header h1{font-size:1.5rem;letter-spacing:-.02em}
+  header span{font-size:1.6rem}
+  .card{background:var(--card);border-radius:var(--r);padding:16px;margin-bottom:14px;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+  #reader{width:100%;border-radius:14px;overflow:hidden;background:#000;min-height:0}
+  #reader video{border-radius:14px}
+  button{font:inherit;border:0;border-radius:14px;padding:14px;font-weight:600;cursor:pointer;width:100%}
+  .primary{background:var(--ink);color:#fff;font-size:1.05rem}
+  .ghost{background:#eceae4;color:var(--ink);margin-top:10px}
+  .row{display:flex;gap:8px;margin-top:12px}
+  .row input{flex:1;font:inherit;padding:13px;border:1px solid #ddd;border-radius:14px;min-width:0}
+  .row button{width:auto;padding:13px 18px;background:#eceae4}
+  #result{display:none}
+  .verdict{border-radius:14px;padding:18px;color:#fff;text-align:center;margin-bottom:14px}
+  .verdict .big{font-size:2.2rem}
+  .verdict .lbl{font-size:1.25rem;font-weight:700;margin-top:4px}
+  .verdict .why{font-size:.92rem;opacity:.95;margin-top:6px}
+  .prod{display:flex;gap:12px;align-items:center}
+  .prod img{width:64px;height:64px;object-fit:contain;border-radius:10px;background:#f2f2f2}
+  .prod .n{font-weight:700}
+  .prod .b{color:var(--mut);font-size:.9rem}
+  details{margin-top:12px;font-size:.9rem;color:var(--mut)}
+  details summary{cursor:pointer;font-weight:600;color:var(--ink)}
+  details p{margin-top:8px;line-height:1.45}
+  mark{background:#ffd9d4;color:var(--red);border-radius:3px;padding:0 2px}
+  .warn{font-size:.8rem;color:var(--mut);margin-top:12px;line-height:1.4}
+  h2{font-size:1rem;margin-bottom:10px}
+  .hist{list-style:none}
+  .hist li{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #f0eee9;cursor:pointer}
+  .hist li:first-child{border-top:0}
+  .dot{width:12px;height:12px;border-radius:50%;flex:none}
+  .hist .t{flex:1;font-size:.93rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .empty{color:var(--mut);font-size:.9rem}
+  .loader{text-align:center;padding:20px;color:var(--mut)}
+</style>
+</head>
+<body>
+<header><span>🌾</span><h1>GlutenScan</h1></header>
+
+<div class="card">
+  <div id="reader"></div>
+  <button class="primary" id="scanBtn">📷 Scanner un produit</button>
+  <label class="ghost" style="display:block;text-align:center;font-weight:600;padding:14px;border-radius:14px;margin-top:10px;cursor:pointer">📸 Prendre une photo du code-barres
+    <input type="file" accept="image/*" capture="environment" id="photo" hidden></label>
+  <div class="row">
+    <input id="manual" inputmode="numeric" placeholder="ou taper le code-barres">
+    <button id="goBtn">OK</button>
+  </div>
+</div>
+
+<div class="card" id="result"></div>
+
+<div class="card">
+  <h2>Historique</h2>
+  <ul class="hist" id="hist"></ul>
+</div>
+
+<script>
+const COLORS={green:'var(--green)',lightgreen:'#3fae6b',orange:'var(--orange)',red:'var(--red)',grey:'var(--grey)'};
+const GLUTEN_WORDS=/(bl[ée]|froment|orge|seigle|[ée]peautre|kamut|triticale|malt|gluten|semoule|chapelure|boulgour|seitan|farine de bl)/gi;
+let scanner=null, scanning=false;
+
+const $=id=>document.getElementById(id);
+
+function store(k,v){try{if(v===undefined)return JSON.parse(localStorage.getItem(k)||'[]');localStorage.setItem(k,JSON.stringify(v))}catch(e){return []}}
+
+async function startScan(){
+  if(scanning){stopScan();return}
+  if(!window.Html5Qrcode){alert("Le module de scan n'a pas chargé. Tape le code à la main.");return}
+  scanner=scanner||new Html5Qrcode('reader',{formatsToSupport:[
+    Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,
+    Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E]});
+  try{
+    await scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:120}},
+      code=>{stopScan();if(navigator.vibrate)navigator.vibrate(80);lookup(code)});
+    scanning=true;$('scanBtn').textContent='✕ Arrêter le scan';
+  }catch(e){alert("Impossible d'accéder à la caméra. Autorise-la dans ton navigateur (le site doit être en https).")}
+}
+async function stopScan(){
+  if(scanner&&scanning){try{await scanner.stop()}catch(e){}}
+  scanning=false;$('scanBtn').textContent='📷 Scanner un produit';
+}
+
+async function lookup(code){
+  code=String(code).replace(/\D/g,'');
+  if(code.length<8){alert('Code-barres invalide');return}
+  const box=$('result');box.style.display='block';
+  box.innerHTML='<div class="loader">Recherche du produit…</div>';
+  box.scrollIntoView({behavior:'smooth'});
+  try{
+    const f='product_name,product_name_fr,brands,image_front_small_url,allergens_tags,traces_tags,ingredients_text_fr,ingredients_text,labels_tags';
+    const r=await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=${f}`);
+    const d=await r.json();
+    if(d.status!==1||!d.product){render(code,null,{level:'grey',icon:'❓',label:'Produit inconnu',why:"Ce produit n'est pas dans la base Open Food Facts."});return}
+    render(code,d.product,analyse(d.product));
+  }catch(e){
+    box.innerHTML='<div class="loader">Erreur réseau. Vérifie ta connexion et réessaie.</div>';
+  }
+}
+
+function analyse(p){
+  const al=p.allergens_tags||[], tr=p.traces_tags||[], lb=p.labels_tags||[];
+  const ing=(p.ingredients_text_fr||p.ingredients_text||'').trim();
+  const clean=ing.replace(/sans gluten/gi,'');
+  const hits=[...new Set((clean.match(GLUTEN_WORDS)||[]).map(s=>s.toLowerCase()))];
+  const oats=/avoine/i.test(clean);
+  const gfLabel=lb.some(l=>/no-gluten|gluten-free|sans-gluten/.test(l));
+
+  if(al.includes('en:gluten')||hits.length)
+    return{level:'red',icon:'🚫',label:'Contient du gluten',why:hits.length?'Trouvé : '+hits.join(', '):'Gluten déclaré dans les allergènes.'};
+  if(gfLabel)
+    return{level:'green',icon:'✅',label:'Sans gluten',why:'Produit labellisé « sans gluten ».'};
+  if(tr.includes('en:gluten'))
+    return{level:'orange',icon:'⚠️',label:'Traces possibles',why:'Le fabricant indique « peut contenir du gluten ».'};
+  if(oats)
+    return{level:'orange',icon:'⚠️',label:'Avoine présente',why:"L'avoine est souvent contaminée par du gluten si elle n'est pas certifiée."};
+  if(!ing)
+    return{level:'grey',icon:'❔',label:'Données insuffisantes',why:"Pas de liste d'ingrédients sur la fiche. Vérifie l'étiquette."};
+  return{level:'lightgreen',icon:'👍',label:'Aucun gluten détecté',why:"Rien trouvé dans les ingrédients ni les allergènes. Pas de label officiel."};
+}
+
+function esc(s){return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+function render(code,p,v){
+  const name=p?(p.product_name_fr||p.product_name||'Produit sans nom'):'Code '+code;
+  const ing=p?(p.ingredients_text_fr||p.ingredients_text||''):'';
+  const hl=esc(ing).replace(GLUTEN_WORDS,m=>`<mark>${m}</mark>`);
+  $('result').innerHTML=`
+    <div class="verdict" style="background:${COLORS[v.level]}">
+      <div class="big">${v.icon}</div><div class="lbl">${v.label}</div><div class="why">${esc(v.why)}</div>
+    </div>
+    <div class="prod">
+      ${p&&p.image_front_small_url?`<img src="${esc(p.image_front_small_url)}" alt="">`:''}
+      <div><div class="n">${esc(name)}</div><div class="b">${esc(p&&p.brands||'')} · ${code}</div></div>
+    </div>
+    ${ing?`<details><summary>Voir les ingrédients</summary><p>${hl}</p></details>`:''}
+    <p class="warn">Données Open Food Facts (collaboratives). En cas de maladie cœliaque ou d'allergie, vérifie toujours l'étiquette du produit.</p>
+    <button class="ghost" onclick="startScan()">Scanner un autre produit</button>`;
+  if(p){
+    let h=store('gs_hist').filter(x=>x.code!==code);
+    h.unshift({code,name,level:v.level});store('gs_hist',h.slice(0,30));drawHist();
+  }
+}
+
+function drawHist(){
+  const h=store('gs_hist');
+  $('hist').innerHTML=h.length?h.map(x=>`<li onclick="lookup('${x.code}')"><span class="dot" style="background:${COLORS[x.level]}"></span><span class="t">${esc(x.name)}</span></li>`).join('')
+    :'<li class="empty" style="cursor:default">Aucun produit scanné pour l\'instant.</li>';
+}
+
+$('photo').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  if(!window.Html5Qrcode){alert("Le module de scan n'a pas chargé (connexion ?). Tape le code à la main.");return}
+  try{
+    await stopScan();
+    const s=new Html5Qrcode('reader');
+    const code=await s.scanFile(f,false);
+    lookup(code);
+  }catch(err){alert("Code-barres illisible. Reprends la photo bien à plat, nette et bien éclairée.")}
+  e.target.value='';
+};
+$('scanBtn').onclick=startScan;
+$('goBtn').onclick=()=>lookup($('manual').value);
+$('manual').addEventListener('keydown',e=>{if(e.key==='Enter')lookup(e.target.value)});
+drawHist();
+</script>
+</body>
+</html>
