@@ -50,6 +50,7 @@
 
 <div class="card">
   <div id="reader"></div>
+  <p id="tip" style="display:none;font-size:.85rem;color:var(--mut);text-align:center;margin:8px 0">Code-barres à l'horizontale, à 10-15 cm, bien éclairé.</p>
   <button class="primary" id="scanBtn">📷 Scanner un produit</button>
   <label class="ghost" style="display:block;text-align:center;font-weight:600;padding:14px;border-radius:14px;margin-top:10px;cursor:pointer">📸 Prendre une photo du code-barres
     <input type="file" accept="image/*" capture="environment" id="photo" hidden></label>
@@ -78,18 +79,21 @@ function store(k,v){try{if(v===undefined)return JSON.parse(localStorage.getItem(
 async function startScan(){
   if(scanning){stopScan();return}
   if(!window.Html5Qrcode){alert("Le module de scan n'a pas chargé. Tape le code à la main.");return}
-  scanner=scanner||new Html5Qrcode('reader',{formatsToSupport:[
+  scanner=scanner||new Html5Qrcode('reader',{verbose:false,formatsToSupport:[
     Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,
-    Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E]});
+    Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E],
+    experimentalFeatures:{useBarCodeDetectorIfSupported:true}});
   try{
-    await scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:260,height:120}},
+    await scanner.start({facingMode:'environment'},{fps:15,disableFlip:true,
+      qrbox:(w,h)=>({width:Math.floor(w*0.92),height:Math.max(80,Math.floor(h*0.4))}),
+      videoConstraints:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080},advanced:[{focusMode:'continuous'}]}},
       code=>{stopScan();if(navigator.vibrate)navigator.vibrate(80);lookup(code)});
-    scanning=true;$('scanBtn').textContent='✕ Arrêter le scan';
+    scanning=true;$('tip').style.display='block';$('scanBtn').textContent='✕ Arrêter le scan';
   }catch(e){alert("Impossible d'accéder à la caméra. Autorise-la dans ton navigateur (le site doit être en https).")}
 }
 async function stopScan(){
   if(scanner&&scanning){try{await scanner.stop()}catch(e){}}
-  scanning=false;$('scanBtn').textContent='📷 Scanner un produit';
+  scanning=false;$('tip').style.display='none';$('scanBtn').textContent='📷 Scanner un produit';
 }
 
 async function lookup(code){
